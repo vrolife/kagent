@@ -1,0 +1,60 @@
+
+# build runtime libs
+
+set(MODULE_TARGET @MODULE_TARGET@)
+string(REGEX MATCH "[^-]+" MODULE_ARCH ${MODULE_TARGET})
+
+message(STATUS "MODULE_TARGET ${MODULE_TARGET}")
+message(STATUS "MODULE_ARCH ${MODULE_ARCH}")
+
+set(CMAKE_SYSTEM_NAME LinuxKernel)
+set(CMAKE_SYSTEM_PROCESSOR ${MODULE_ARCH})
+set(CMAKE_SYSROOT ${CMAKE_BINARY_DIR}/sysroot)
+
+set(CMAKE_C_COMPILER @MODULE_C_COMPILER@)
+set(CMAKE_CXX_COMPILER @MODULE_CXX_COMPILER@)
+set(CMAKE_C_COMPILER_TARGET ${MODULE_TARGET})
+set(CMAKE_CXX_COMPILER_TARGET ${MODULE_TARGET})
+set(CMAKE_C_COMPILER_FORCED ON)
+set(CMAKE_CXX_COMPILER_FORCED ON)
+
+set(__COMMON_FLAGS
+    -nostdinc 
+    -Wall -Wno-format-security -Wno-bitwise-op-parentheses -Wno-shift-op-parentheses -Wno-frame-address 
+    -fno-common -fno-jump-tables -fno-stack-protector -fno-unwind-tables -fno-omit-frame-pointer 
+    -fno-asynchronous-unwind-tables -fno-plt -fno-PIC -fno-addrsig
+    -I ${CMAKE_SYSROOT}/include -I ${KAGENT_SOURCE_DIR}/include
+)
+
+set(__LDFLAGS
+    -r -z noexecstack --build-id=sha1 -L${CMAKE_SYSROOT}/lib
+)
+
+if(MODULE_ARCH STREQUAL x86_64)
+    list(APPEND __COMMON_FLAGS -mcmodel=kernel)
+endif()
+
+if(MODULE_ARCH STREQUAL aarch64)
+    # fix CONFIG_ARM64_ERRATUM_843419
+    list(APPEND __COMMON_FLAGS -mcmodel=tiny)
+    list(APPEND __LDFLAGS --fix-cortex-a53-843419)
+endif()
+
+list(APPEND __CFLAGS ${__COMMON_FLAGS} -std=gnu11)
+list(APPEND __CXXFLAGS ${__COMMON_FLAGS} -fno-exceptions -fno-rtti -std=c++11)
+
+list(JOIN __CFLAGS " " CMAKE_C_FLAGS)
+list(JOIN __CXXFLAGS " " CMAKE_CXX_FLAGS)
+
+set(CMAKE_LINKER @MODULE_LINKER@)
+list(JOIN __LDFLAGS " " CMAKE_MODULE_LINKER_FLAGS)
+
+set(CMAKE_C_CREATE_SHARED_LIBRARY "<CMAKE_LINKER> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+set(CMAKE_CXX_CREATE_SHARED_LIBRARY "${CMAKE_C_CREATE_SHARED_LIBRARY}")
+
+set(CMAKE_C_CREATE_SHARED_MODULE "${CMAKE_C_CREATE_SHARED_LIBRARY}")
+set(CMAKE_CXX_CREATE_SHARED_MODULE "${CMAKE_C_CREATE_SHARED_LIBRARY}")
+
+list(APPEND CMAKE_MODULE_PATH ${KAGENT_SOURCE_DIR}/cmake)
+
+include(${KAGENT_SOURCE_DIR}/cmake/module.cmake)

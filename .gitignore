@@ -1,0 +1,8 @@
+.vscode
+out
+build
+.cache
+.source
+.download
+*.ko
+vmlinux*

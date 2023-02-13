@@ -1,0 +1,32 @@
+#include "kagent/private.h"
+
+#define MOD_INFO(name, value) \
+    static const char __modinfo_##name[] \
+    USED \
+    SECTION(".modinfo") \
+    ALIGN_AS(1) = #name "=" value;
+
+extern int module_init();
+extern void module_exit();
+
+MOD_INFO(version, "@MODULE_VERSION@");
+MOD_INFO(license, "@MODULE_LICENSE@");
+MOD_INFO(author, "@MODULE_AUTHOR@");
+MOD_INFO(description, "@MODULE_DESC@");
+MOD_INFO(depends, "@MODULE_DEPENDS@");
+MOD_INFO(srcversion, "@MODULE_SRCVERSION@");
+MOD_INFO(name, "@MODULE_NAME@");
+MOD_INFO(vermagic, VERMAGIC_PLACEHOLDER);
+
+struct KernelModule __this_module USED SECTION(".gnu.linkonce.this_module") = {
+    .name = "@MODULE_NAME@",
+    .init = module_init,
+    .exit = module_exit,
+};
+
+#if defined(__aarch64__)
+SECTION(".plt") USED
+static char arm64_empty_plt[0];
+SECTION(".init.plt") USED
+static char arm64_empty_init_plt[0];
+#endif
