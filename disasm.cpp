@@ -222,7 +222,7 @@ size_t get_kernel_symbol_size(uint8_t* sym_module_get_kallsym)
     return kernel_symbol_size;
 }
 
-void relocate_arm64_kernel(KernelInformation& ki, uint8_t* __relocate_kernel)
+void arm64_relocate_kernel(KernelInformation& ki, uint8_t* __relocate_kernel)
 {
     csh handle {};
     cs_insn* insn { nullptr };
@@ -309,4 +309,56 @@ void relocate_arm64_kernel(KernelInformation& ki, uint8_t* __relocate_kernel)
     // }
 
     cs_free(insn, count);
+}
+
+uintptr_t arm64_get_mm_pgd_offset(uint8_t* create_pgd_mapping)
+{
+    csh handle {};
+    cs_insn* insn { nullptr };
+
+    if (cs_open(CAPSTONE_INIT_OPTS, &handle) != CS_ERR_OK) {
+        throw std::runtime_error { "failed to initialize capstone engine" };
+    }
+
+    auto release_capstone_handle = ScopeTail([&]() {
+        cs_close(&handle);
+    });
+
+    cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+
+    constexpr size_t max_insn = 24;
+
+    auto count = cs_disasm(handle, create_pgd_mapping, 0x1000, 0, max_insn, &insn);
+    if (count == 0) {
+        throw std::runtime_error { "failed to disassemble create_pgd_mapping" };
+    }
+
+    /*
+        arm64
+        LDR             X0, [X0,#0x48]
+    */
+    ssize_t pgd_offset = -1;
+
+    for (size_t i = 0; i < count; ++i) {
+        auto& instruction = insn[i];
+
+        // printf("%zu 0x%" PRIx64 ":\t%s\t\t%s\n", i, insn[i].address, insn[i].mnemonic, insn[i].op_str);
+        // fflush(stdout);
+
+        if (ARM64_INS_LDR == instruction.id
+            and instruction.detail->arm64.op_count == 2
+            and instruction.detail->arm64.operands[0].type == ARM64_OP_REG
+            and instruction.detail->arm64.operands[0].reg == ARM64_REG_X0
+            and instruction.detail->arm64.operands[1].type == ARM64_OP_MEM) {
+            pgd_offset = instruction.detail->arm64.operands[1].mem.disp;
+            break;
+        }
+    }
+    cs_free(insn, count);
+
+    if (pgd_offset == -1) {
+        throw std::runtime_error { "pgd offset not found s" };
+    }
+
+    return pgd_offset;
 }

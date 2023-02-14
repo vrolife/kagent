@@ -36,7 +36,7 @@ endif()
 
 if(MODULE_ARCH STREQUAL aarch64)
     # fix CONFIG_ARM64_ERRATUM_843419
-    list(APPEND __COMMON_FLAGS -mcmodel=tiny)
+    list(APPEND __COMMON_FLAGS -mcmodel=large -fdirect-access-external-data)
     list(APPEND __LDFLAGS --fix-cortex-a53-843419)
 endif()
 

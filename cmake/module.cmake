@@ -114,6 +114,7 @@ function(add_module NAME)
             BUILD_ALWAYS ON
             CMAKE_ARGS
                 -DKAGENT_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
                 -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/${NAME}
                 -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_BINARY_DIR}/${MODULE_TARGET}-toolchain.cmake
                 ${MODULE_CONFIGURE_ARGS}

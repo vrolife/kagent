@@ -71,3 +71,4 @@ target_link_libraries(kdeploy PRIVATE
 )
 
 add_subdirectory(modules)
+add_subdirectory(tests)

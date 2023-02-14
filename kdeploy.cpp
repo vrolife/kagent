@@ -24,7 +24,6 @@
 #include "disasm.h"
 #include "utils.h"
 
-#include "kagent/common.h"
 #include "kagent/private.h"
 
 namespace po = boost::program_options;
@@ -385,6 +384,9 @@ std::tuple<bool, uint32_t> find_symbol_crc(
                 versions = reinterpret_cast<SymbolVersion*>(reinterpret_cast<char*>(header) + shdr[i].sh_offset);
                 vers_num = shdr[i].sh_size / sizeof(SymbolVersion);
             }
+            if (std::string_view(shstrtab + shdr[i].sh_name) == ".kagent.runtime.information") {
+                ki.runtime_info = reinterpret_cast<RuntimeInformation*>(reinterpret_cast<char*>(header) + shdr[i].sh_offset);
+            }
         }
 
         if (this_module_rela == nullptr) {
@@ -409,7 +411,7 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         {
             auto __relocate_kernel = kallsyms.find("__relocate_kernel");
             if (__relocate_kernel != kallsyms.end()) {
-                relocate_arm64_kernel(ki, ki.ptr_of_sym(__relocate_kernel->second));
+                arm64_relocate_kernel(ki, ki.ptr_of_sym(__relocate_kernel->second));
                 relocated = true;
             }
             if (not relocated) {
@@ -520,6 +522,23 @@ std::tuple<bool, uint32_t> find_symbol_crc(
             } else {
                 BOOST_LOG_TRIVIAL(error) << "NOT FOUND " << versions[i].name;
             }
+        }
+    }
+
+    // fill runtime information
+    if (ki.runtime_info) {
+        if (ki.runtime_info->mm_pgd_required) {
+            auto create_pgd_mapping = kallsyms.find("create_pgd_mapping");
+            if (create_pgd_mapping == kallsyms.end()) {
+                BOOST_LOG_TRIVIAL(debug) << "create_pgd_mapping not found";
+                return -1;
+            }
+#ifdef __aarch64__
+            ki.runtime_info->mm_pgd_offset = arm64_get_mm_pgd_offset(ki.ptr_of_sym(create_pgd_mapping->second));
+#else
+            BOOST_LOG_TRIVIAL(debug) << "pgd offset for current arch not available";
+            return -1;
+#endif
         }
     }
 

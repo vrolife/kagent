@@ -74,4 +74,21 @@ struct dentry *debugfs_create_file(
     void *data,
     const struct file_operations *fops);
 
+
+// task/mm
+
+struct task_struct;
+struct mm_struct;
+struct pid;
+
+enum pid_type {
+    PIDTYPE_PID
+};
+
+struct pid* find_get_pid(pid_t pid);
+struct task_struct* get_pid_task(struct pid* pid, enum pid_type type);
+
+struct mm_struct* get_task_mm(struct task_struct* task);
+void mmput(struct mm_struct* mm);
+
 #endif

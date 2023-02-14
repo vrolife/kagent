@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 
+#include "kagent/common.h"
+
 enum class KernelSymbolStructType {
     None,
     V1,
@@ -38,6 +40,8 @@ struct KernelInformation {
 
     bool ARCH_RELOCATES_KCRCTAB { false };
     uintptr_t kaslr { 0 };
+
+    RuntimeInformation* runtime_info{nullptr};
 
     template <typename T = uint8_t*>
     T ptr_of_sym(uintptr_t addr)
