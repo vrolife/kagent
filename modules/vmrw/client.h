@@ -7,7 +7,10 @@
 extern "C" {
 #endif
 
+#define VMRW_VERSION 1
+
 struct Request {
+    int version;
     int pid;
     void* remote;
     void* local;

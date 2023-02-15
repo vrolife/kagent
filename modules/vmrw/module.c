@@ -96,6 +96,10 @@ ssize_t fop_read(struct file* file, char* req_buffer, size_t size, loff_t* offse
 
     copy_from_user(&req, req_buffer, size);
 
+    if (req.version != VMRW_VERSION) {
+        return -EINVAL;
+    }
+
     struct pid* pid = find_get_pid(req.pid);
 
     if (pid == NULL) {

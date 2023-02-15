@@ -6,6 +6,7 @@
 size_t vmrw_read(int fd, int pid, void* remote, void* local, size_t size)
 {
     struct Request req;
+    req.version = VMRW_VERSION;
     req.pid = pid;
     req.remote = remote;
     req.local = local;
