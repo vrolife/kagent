@@ -7,7 +7,7 @@
 
 #include "client.h"
 
-#define ENABLE_DEBUG_LOG 1
+#define ENABLE_DEBUG_LOG 0
 
 #if ENABLE_DEBUG_LOG
 #define DEBUG_LOG(...) pr_info(__VA_ARGS__)
@@ -21,11 +21,12 @@ struct RuntimeInformation rti RUNTIME_INFORMATION = {
     .mm_pgd_required = 1
 };
 
-extern int64_t memstart_addr;
-
 struct dentry * vmrw_file = NULL;
 
 #ifdef __aarch64__
+
+// TODO calc offset of memstart_addr at runtime
+extern int64_t memstart_addr;
 
 #define PHYS_OFFSET memstart_addr
 
