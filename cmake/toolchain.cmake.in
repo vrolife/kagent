@@ -22,7 +22,7 @@ set(__COMMON_FLAGS
     -nostdinc 
     -Wall -Wno-format-security -Wno-bitwise-op-parentheses -Wno-shift-op-parentheses -Wno-frame-address 
     -fno-common -fno-jump-tables -fno-stack-protector -fno-unwind-tables -fno-omit-frame-pointer 
-    -fno-asynchronous-unwind-tables -fno-plt -fno-PIC -fno-addrsig
+    -Wno-unused-function -fno-asynchronous-unwind-tables -fno-plt -fno-PIC -fno-addrsig
     -I ${CMAKE_SYSROOT}/include -I ${KAGENT_SOURCE_DIR}/include
 )
 

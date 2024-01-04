@@ -7,3 +7,4 @@ add_module(
     LICENSE GPL
     module.c
 )
+target_link_libraries(vmrw PRIVATE kapi resolve_page)

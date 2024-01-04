@@ -1,3 +1,19 @@
+/*
+    Copyright (C) 2024 pom@vro.life
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 #include <elf.h>
 #include <fcntl.h>
 #include <link.h>
@@ -31,7 +47,7 @@ namespace po = boost::program_options;
 template <typename S>
 typename std::enable_if<S::method == KernelSymbolMethod::Offset, ssize_t>::
     type
-    find_symbol(const std::string_view& symbol_name, S* begin, S* end)
+    find_symbol(KernelInformation& ki, const std::string_view& symbol_name, S* begin, S* end)
 {
     for (auto* iter = begin; iter != end; ++iter) {
         auto* name = reinterpret_cast<char*>(&iter->name_offset) + iter->name_offset;
@@ -45,18 +61,20 @@ typename std::enable_if<S::method == KernelSymbolMethod::Offset, ssize_t>::
 template <typename S>
 typename std::enable_if<S::method == KernelSymbolMethod::Abs, ssize_t>::
     type
-    find_symbol(const std::string_view& symbol_name, S* begin, S* end)
+    find_symbol(KernelInformation& ki, const std::string_view& symbol_name, S* begin, S* end)
 {
     for (auto* iter = begin; iter < end; ++iter) {
+        // BOOST_LOG_TRIVIAL(debug) << "symbol addr " << (void*)iter->name;
+        
         if (symbol_name == iter->name) {
-            // BOOST_LOG_TRIVIAL(debug) << "symbol " << symbol_name << " val: " << (void*)iter->value << "  item: " << (void*)iter;
+            // BOOST_LOG_TRIVIAL(debug) << "symbol " << symbol_name << " ptr: " << (void*)iter->value << " relative to buffer: " << (void*)ki.buffer_offset_of_ptr(iter);
             return iter - begin;
         }
     }
     return -1;
 }
 
-std::tuple<bool, uint32_t> find_symbol_crc(
+std::tuple<bool, unsigned long> find_symbol_crc(
     KernelInformation& ki,
     const std::string_view& symbol_name,
     std::vector<SymbolTable>& sym_tables)
@@ -67,25 +85,25 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         case KernelSymbolStructType::V1: {
             auto* begin = reinterpret_cast<KernelSymbol1*>(table.symbol_start_ptr);
             auto* end = reinterpret_cast<KernelSymbol1*>(table.symbol_stop_ptr);
-            index = find_symbol(symbol_name, begin, end);
+            index = find_symbol(ki, symbol_name, begin, end);
             break;
         }
         case KernelSymbolStructType::V2: {
             auto* begin = reinterpret_cast<KernelSymbol2*>(table.symbol_start_ptr);
             auto* end = reinterpret_cast<KernelSymbol2*>(table.symbol_stop_ptr);
-            index = find_symbol(symbol_name, begin, end);
+            index = find_symbol(ki, symbol_name, begin, end);
             break;
         }
         case KernelSymbolStructType::V3: {
             auto* begin = reinterpret_cast<KernelSymbol3*>(table.symbol_start_ptr);
             auto* end = reinterpret_cast<KernelSymbol3*>(table.symbol_stop_ptr);
-            index = find_symbol(symbol_name, begin, end);
+            index = find_symbol(ki, symbol_name, begin, end);
             break;
         }
         case KernelSymbolStructType::V4: {
             auto* begin = reinterpret_cast<KernelSymbol4*>(table.symbol_start_ptr);
             auto* end = reinterpret_cast<KernelSymbol4*>(table.symbol_stop_ptr);
-            index = find_symbol(symbol_name, begin, end);
+            index = find_symbol(ki, symbol_name, begin, end);
             break;
         }
         default:
@@ -93,10 +111,14 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         }
         if (index != -1) {
             auto* crc_ptr = reinterpret_cast<unsigned long*>(table.crc_start_ptr) + index;
+            // BOOST_LOG_TRIVIAL(debug) << "found sym " << symbol_name << " index " << index << " crc " << (void*)*crc_ptr << " reloated-kcrctabl " << ki.ARCH_RELOCATES_KCRCTAB;
             if (ki.ARCH_RELOCATES_KCRCTAB) {
                 return {
                     true,
-                    *crc_ptr - ki.kaslr
+                    // *crc_ptr - ki.kaslr
+
+                    // __relocate_kernel did not touch the crc value
+                    *crc_ptr - (ki.get_symbol("_text") - ki.load_offset - ki.default_base)
                 };
             }
             return { true, *crc_ptr };
@@ -157,7 +179,7 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         return 1;
     }
 
-    std::string module_ko = read_file(module_file);
+    std::vector<char> module_ko = read_file(module_file);
 
     // read module.ko
     if (module_ko.empty()) {
@@ -231,7 +253,6 @@ std::tuple<bool, uint32_t> find_symbol_crc(
     }
 
     // get kallsyms
-    std::unordered_map<std::string, uintptr_t> kallsyms;
 
     // echo "1" > /proc/sys/kernel/kptr_restrict
     if (symbol_map.empty()) {
@@ -258,47 +279,26 @@ std::tuple<bool, uint32_t> find_symbol_crc(
             char type { 0 };
 
             if (sscanf(line, "%" SCNxPTR " %c %s", &ptr, &type, name) == 3) {
-                kallsyms.emplace(std::pair<std::string, uintptr_t> { name, ptr });
+                ki.kallsyms.emplace(std::pair<std::string, uintptr_t> { name, ptr });
             }
         }
 
         fclose(fp);
     }
 
-    BOOST_LOG_TRIVIAL(debug) << "symbol count " << kallsyms.size();
+    BOOST_LOG_TRIVIAL(debug) << "symbol count " << ki.kallsyms.size();
 
     // find key symbol
     {
-        auto iter = kallsyms.find("_text");
-        if (iter == kallsyms.end()) {
-            BOOST_LOG_TRIVIAL(debug) << "symbol _text not found";
-            return -1;
-        }
-        ki.sym_text = iter->second;
+        ki.sym_text = ki.get_symbol("_text");
 
-        iter = kallsyms.find("sys_delete_module");
-        if (iter == kallsyms.end()) {
-            iter = kallsyms.find("__do_sys_delete_module.constprop.0");
+        ki.sym_delete_modulem = ki.find_symbol("sys_delete_module");
+        if (ki.sym_delete_modulem == 0) {
+            ki.sym_delete_modulem = ki.get_symbol("__do_sys_delete_module.constprop.0");
         }
-        if (iter == kallsyms.end()) {
-            BOOST_LOG_TRIVIAL(debug) << "symbol sys_delete_module not found";
-            return -1;
-        }
-        ki.sym_delete_modulem = iter->second;
 
-        iter = kallsyms.find("module_get_kallsym");
-        if (iter == kallsyms.end()) {
-            BOOST_LOG_TRIVIAL(debug) << "symbol module_get_kallsym not found";
-            return -1;
-        }
-        ki.sym_module_get_kallsym = iter->second;
-
-        iter = kallsyms.find("vermagic");
-        if (iter == kallsyms.end()) {
-            BOOST_LOG_TRIVIAL(debug) << "symbol vermagic not found";
-            return -1;
-        }
-        ki.sym_vermagic = iter->second;
+        ki.sym_module_get_kallsym = ki.get_symbol("module_get_kallsym");
+        ki.sym_vermagic = ki.get_symbol("vermagic");
     }
 
     // uintptr_t delete_module_offset = sym_delete_modulem - sym_text;
@@ -409,9 +409,9 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         if (ki.symbol_struct_type == KernelSymbolStructType::V1
             or ki.symbol_struct_type == KernelSymbolStructType::V4) // TODO and KASLR
         {
-            auto __relocate_kernel = kallsyms.find("__relocate_kernel");
-            if (__relocate_kernel != kallsyms.end()) {
-                arm64_relocate_kernel(ki, ki.ptr_of_sym(__relocate_kernel->second));
+            auto __relocate_kernel = ki.find_symbol("__relocate_kernel");
+            if (__relocate_kernel != 0) {
+                arm64_relocate_kernel(ki, ki.ptr_of_sym(__relocate_kernel));
                 relocated = true;
             }
             if (not relocated) {
@@ -419,23 +419,16 @@ std::tuple<bool, uint32_t> find_symbol_crc(
             }
         }
 
+        BOOST_LOG_TRIVIAL(debug) << "kernel buffer " << (void*)ki.buffer.data();
+
         // resolve symbol
         std::vector<SymbolTable> sym_tables {};
 
-        auto find_symbol_or_null = [&](const char* name) {
-            auto iter = kallsyms.find(name);
-            if (iter == kallsyms.end()) {
-                BOOST_LOG_TRIVIAL(debug) << name << " not found";
-                return (uintptr_t)0;
-            }
-            return iter->second;
-        };
-
         {
-            auto __start___ksymtab_gpl_future = find_symbol_or_null("__start___ksymtab_gpl_future");
-            auto __stop___ksymtab_gpl_future = find_symbol_or_null("__stop___ksymtab_gpl_future");
-            auto __start___kcrctab_gpl_future = find_symbol_or_null("__start___kcrctab_gpl_future");
-            auto __stop___kcrctab_gpl_future = find_symbol_or_null("__stop___kcrctab_gpl_future");
+            auto __start___ksymtab_gpl_future = ki.find_symbol("__start___ksymtab_gpl_future");
+            auto __stop___ksymtab_gpl_future = ki.find_symbol("__stop___ksymtab_gpl_future");
+            auto __start___kcrctab_gpl_future = ki.find_symbol("__start___kcrctab_gpl_future");
+            auto __stop___kcrctab_gpl_future = ki.find_symbol("__stop___kcrctab_gpl_future");
 
             if (__start___kcrctab_gpl_future) {
                 sym_tables.emplace_back(SymbolTable {
@@ -446,10 +439,10 @@ std::tuple<bool, uint32_t> find_symbol_crc(
                     __stop___kcrctab_gpl_future });
             }
 
-            auto __start___ksymtab_gpl = find_symbol_or_null("__start___ksymtab_gpl");
-            auto __stop___ksymtab_gpl = find_symbol_or_null("__stop___ksymtab_gpl");
-            auto __start___kcrctab_gpl = find_symbol_or_null("__start___kcrctab_gpl");
-            auto __stop___kcrctab_gpl = find_symbol_or_null("__stop___kcrctab_gpl");
+            auto __start___ksymtab_gpl = ki.find_symbol("__start___ksymtab_gpl");
+            auto __stop___ksymtab_gpl = ki.find_symbol("__stop___ksymtab_gpl");
+            auto __start___kcrctab_gpl = ki.find_symbol("__start___kcrctab_gpl");
+            auto __stop___kcrctab_gpl = ki.find_symbol("__stop___kcrctab_gpl");
 
             if (__start___kcrctab_gpl) {
                 sym_tables.emplace_back(SymbolTable {
@@ -460,10 +453,10 @@ std::tuple<bool, uint32_t> find_symbol_crc(
                     __stop___kcrctab_gpl });
             }
 
-            auto __start___ksymtab = find_symbol_or_null("__start___ksymtab");
-            auto __stop___ksymtab = find_symbol_or_null("__stop___ksymtab");
-            auto __start___kcrctab = find_symbol_or_null("__start___kcrctab");
-            auto __stop___kcrctab = find_symbol_or_null("__stop___kcrctab");
+            auto __start___ksymtab = ki.find_symbol("__start___ksymtab");
+            auto __stop___ksymtab = ki.find_symbol("__stop___ksymtab");
+            auto __start___kcrctab = ki.find_symbol("__start___kcrctab");
+            auto __stop___kcrctab = ki.find_symbol("__stop___kcrctab");
 
             if (__start___kcrctab) {
                 sym_tables.emplace_back(SymbolTable {
@@ -477,8 +470,10 @@ std::tuple<bool, uint32_t> find_symbol_crc(
 
         for (auto& tbl : sym_tables) {
             BOOST_LOG_TRIVIAL(debug) << "symtable table "
-                      << (void*)tbl.symbol_start << "-" << (void*)tbl.symbol_stop << " " << (void*)tbl.crc_start << "-" << (void*)tbl.crc_stop
-                      << " " << ki.offset<void*>(tbl.symbol_start) << "-" << ki.offset<void*>(tbl.symbol_stop) << " " << ki.offset<void*>(tbl.crc_start) << "-" << ki.offset<void*>(tbl.crc_stop)
+                      << (void*)tbl.symbol_start << "-" << (void*)tbl.symbol_stop 
+                      << " crc " << (void*)tbl.crc_start << "-" << (void*)tbl.crc_stop
+                      << " sym " << ki.offset<void*>(tbl.symbol_start) << "-" << ki.offset<void*>(tbl.symbol_stop) 
+                      << " crc " << ki.offset<void*>(tbl.crc_start) << "-" << ki.offset<void*>(tbl.crc_stop)
                       << " " << tbl.name
                      ;
             tbl.symbol_start_ptr = ki.ptr_of_sym(tbl.symbol_start);
@@ -515,10 +510,15 @@ std::tuple<bool, uint32_t> find_symbol_crc(
         BOOST_LOG_TRIVIAL(debug) << "symbol count " << vers_num;
 
         for (int i = 0; i < vers_num; ++i) {
+#if 0
+            std::tuple<bool, unsigned long> find_symbol_crc_unicorn(KernelInformation& ki, const std::string& name);
+            auto [found, crc] = find_symbol_crc_unicorn(ki, versions[i].name);
+#else
             auto [found, crc] = find_symbol_crc(ki, versions[i].name, sym_tables);
+#endif
             if (found) {
                 versions[i].crc = crc;
-                BOOST_LOG_TRIVIAL(info) << (void*)(uintptr_t)crc << " " << versions[i].name;
+                BOOST_LOG_TRIVIAL(info) << "crc " << (void*)(uintptr_t)crc << " " << versions[i].name;
             } else {
                 BOOST_LOG_TRIVIAL(error) << "NOT FOUND " << versions[i].name;
             }
@@ -528,13 +528,10 @@ std::tuple<bool, uint32_t> find_symbol_crc(
     // fill runtime information
     if (ki.runtime_info) {
         if (ki.runtime_info->mm_pgd_required) {
-            auto create_pgd_mapping = kallsyms.find("create_pgd_mapping");
-            if (create_pgd_mapping == kallsyms.end()) {
-                BOOST_LOG_TRIVIAL(debug) << "create_pgd_mapping not found";
-                return -1;
-            }
+            auto create_pgd_mapping = ki.get_symbol("create_pgd_mapping");
+            
 #ifdef __aarch64__
-            ki.runtime_info->mm_pgd_offset = arm64_get_mm_pgd_offset(ki.ptr_of_sym(create_pgd_mapping->second));
+            ki.runtime_info->mm_pgd_offset = arm64_get_mm_pgd_offset(ki.ptr_of_sym(create_pgd_mapping));
 #else
             BOOST_LOG_TRIVIAL(debug) << "pgd offset for current arch not available";
             return -1;

@@ -4,12 +4,12 @@ include(ExternalProject)
 function(add_module NAME)
     if(KAGENT_SOURCE_DIR)
         cmake_parse_arguments(MODULE "" "NAME;VERSION;LICENSE;AUTHOR;DESC;DEPENDS;SRCVERSION" "SOURCES" ${ARGN})
+
+        add_subdirectory(${KAGENT_LIBRARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/libs)
         
         if(NOT DEFINED MODULE_NAME)
             set(MODULE_NAME ${NAME})
         endif()
-
-        include(ExternalProject)
 
         set(__TARGET_OPT --target=${MODULE_ARCH})
         
@@ -43,7 +43,7 @@ function(add_module NAME)
             ${MODULE_UNPARSED_ARGUMENTS}
             ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.mod.c
         )
-
+        target_link_libraries(${NAME} PRIVATE kagent)
         add_dependencies(${NAME} build_musl)
 
         set_target_properties(${NAME} PROPERTIES 
@@ -63,6 +63,7 @@ function(add_module NAME)
             COMMAND 
                 ${CMAKE_C_COMPILER}
                     ${__CFLAGS} ${__TARGET_OPT}
+                    -I ${KAGENT_LIBRARY_DIR}/kagent
                     -c
                     -o ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.lst.o
                     ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.lst.c
@@ -114,6 +115,7 @@ function(add_module NAME)
             BUILD_ALWAYS ON
             CMAKE_ARGS
                 -DKAGENT_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DKAGENT_LIBRARY_DIR=${CMAKE_SOURCE_DIR}/libs
                 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
                 -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/${NAME}
                 -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_BINARY_DIR}/${MODULE_TARGET}-toolchain.cmake

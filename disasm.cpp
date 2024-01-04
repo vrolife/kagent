@@ -1,3 +1,19 @@
+/*
+    Copyright (C) 2024 pom@vro.life
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 #include <elf.h>
 #include <link.h>
 
@@ -254,6 +270,8 @@ void arm64_relocate_kernel(KernelInformation& ki, uint8_t* __relocate_kernel)
         old kernel
         ldr w9, =rela_offset # _head + (rela - _head) , _head = 0x8000 = hdr->offset
         ldr w10, =rela_size
+
+        // mov ..., KIMAGE_VADDR
         movn            x11, #0x7f, lsl #32
         movk            x11, #0x800, lsl #16
         movk            x11, #0
@@ -269,27 +287,28 @@ void arm64_relocate_kernel(KernelInformation& ki, uint8_t* __relocate_kernel)
     } else if (ARM64_INS_LDR == insn[0].id) {
         auto rela_offset = *reinterpret_cast<uint32_t*>(insn[0].detail->arm64.operands[1].imm) - ki.load_offset; // relative to _head
         auto rela_size = *reinterpret_cast<uint32_t*>(insn[1].detail->arm64.operands[1].imm);
-        uint64_t default_base = 0;
+        uint64_t default_base = 0; // KIMAGE_VADDR
 
         arm64_decode_movn_movk(&insn[2], 3, &default_base);
 
-        auto kaslr = (reinterpret_cast<uintptr_t>(ki.buffer.data()) - ki.load_offset) - default_base;
+        uintptr_t kaslr = (reinterpret_cast<uintptr_t>(ki.buffer.data()) - ki.load_offset) - default_base;
 
         BOOST_LOG_TRIVIAL(debug) << "kernel load offset " << (void*)(uintptr_t)ki.load_offset;
         BOOST_LOG_TRIVIAL(debug) << "kernel rela_offset " << (void*)(uintptr_t)rela_offset;
         BOOST_LOG_TRIVIAL(debug) << "kernel rela_size " << (void*)(uintptr_t)rela_size;
         BOOST_LOG_TRIVIAL(debug) << "kernel default_base " << (void*)(uintptr_t)default_base;
+        BOOST_LOG_TRIVIAL(debug) << "kernel kaslr  " << (void*)kaslr;
 
         auto* iter = ki.ptr<ElfW(Rela)*>(rela_offset);
         auto* end = ki.ptr<ElfW(Rela)*>(rela_offset + rela_size);
 
         ki.ARCH_RELOCATES_KCRCTAB = true;
-        ki.kaslr = reinterpret_cast<uintptr_t>(kaslr);
+        ki.kaslr = kaslr;
         ki.default_base = default_base;
 
         for (; iter < end; ++iter) {
-            auto* loc = reinterpret_cast<uint64_t*>(kaslr + iter->r_offset);
-            auto val = static_cast<uint64_t>(kaslr + iter->r_addend);
+            auto* loc = reinterpret_cast<uint64_t*>(iter->r_offset + kaslr);
+            auto val = static_cast<uint64_t>(iter->r_addend + kaslr);
             switch (iter->r_info) {
             case R_AARCH64_RELATIVE:
                 memcpy(loc, &val, sizeof(val));

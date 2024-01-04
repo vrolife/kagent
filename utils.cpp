@@ -1,3 +1,19 @@
+/*
+    Copyright (C) 2024 pom@vro.life
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 #include <sys/stat.h>
 
 #include <array>
@@ -31,9 +47,9 @@ std::string get_random_string(size_t n)
     return output;
 }
 
-std::string read_file(int fd, ssize_t size)
+std::vector<char> read_file(int fd, ssize_t size)
 {
-    std::string buffer{};
+    std::vector<char> buffer{};
 
     if (size == -1) {
         struct stat status{};
@@ -51,7 +67,7 @@ std::string read_file(int fd, ssize_t size)
     return buffer; 
 }
 
-std::string read_file(const std::string& filename, ssize_t size)
+std::vector<char> read_file(const std::string& filename, ssize_t size)
 {
     UniqueFD fd{::open(filename.c_str(), O_RDONLY)};
     if (not fd) {

@@ -65,11 +65,16 @@ int main(int argc, char *argv[])
     std::cout << "address: " << address << std::endl;
     std::cout << "size   : " << size << std::endl;
 
-    size_t remain = vmrw_read(fd, vm["pid"].as<pid_t>(), address, buffer.data(), buffer.size());
-    if (remain) {
-        std::cerr << "Failed to read remote memory, remain " << remain << std::endl;
+    size_t result = vmrw_read(fd, vm["pid"].as<pid_t>(), address, buffer.data(), buffer.size());
+    if (result < 0) {
+        std::cerr << "Failed to read remote memory. " << strerror(errno) << std::endl;
         return -1;
     }
+
+    if (result != buffer.size()) {
+        std::cerr << "Expect " << buffer.size() << " but got " << result << std::endl;
+    }
+    buffer.resize(result);
 
     if (vm["pid"].as<pid_t>() == getpid()) {
         std::cout << "pass " << (int)(memcmp(buffer.data(), &target, sizeof(target)) == 0) << std::endl;

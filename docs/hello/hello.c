@@ -15,6 +15,6 @@ module_init(mod_init);
 module_exit(mod_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("");
-MODULE_DESCRIPTION("");
+MODULE_AUTHOR("someone");
+MODULE_DESCRIPTION("kernel module");
 MODULE_VERSION("0.1");
